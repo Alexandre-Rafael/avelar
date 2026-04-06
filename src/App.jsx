@@ -847,6 +847,37 @@ const FilaEdicao = ({ videos, saveItem }) => {
                   <p className="text-slate-400 text-sm">{selected.observacoes}</p>
                 </div>
               )}
+
+              {selected.revisoes?.length > 0 && (
+                <div>
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                    <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                      ⚠ Ajuste solicitado pelo dono
+                    </h4>
+                    <p className="text-sm text-red-200 whitespace-pre-wrap">
+                      {selected.revisoes[selected.revisoes.length - 1].feedback}
+                    </p>
+                    <span className="text-[11px] text-red-400/60 mt-2 block">
+                      {new Date(selected.revisoes[selected.revisoes.length - 1].data).toLocaleString()}
+                    </span>
+                  </div>
+                  {selected.revisoes.length > 1 && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300 transition-colors">
+                        Ver histórico completo ({selected.revisoes.length} revisões)
+                      </summary>
+                      <div className="mt-2 space-y-2">
+                        {selected.revisoes.slice(0, -1).map((r, i) => (
+                          <div key={i} className="bg-dark-900 p-3 rounded border border-dark-700 text-sm">
+                            <span className="text-slate-500 block mb-1 text-xs">{new Date(r.data).toLocaleString()}</span>
+                            <p className="text-slate-400">{r.feedback}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="bg-dark-900/50 p-6 rounded-xl border border-dark-700">
