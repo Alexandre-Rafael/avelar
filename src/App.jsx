@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Video, Lightbulb, BeakerIcon, CheckCircle, Clock, Search,
   Send, Edit, Upload, Eye, FileText, Plus, X, Menu, Settings, PlaySquare, ChevronRight, Home, List, ThumbsUp, MessagesSquare
@@ -55,7 +55,25 @@ window.storage = {
   }
 };
 
-const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+const generateId = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
+
+const compressImage = (file, maxWidth = 1280, quality = 0.78) =>
+  new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        if (width > maxWidth) { height = Math.round((height * maxWidth) / width); width = maxWidth; }
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
 
 // =======================
 // SHARED HOOK / API
@@ -204,6 +222,72 @@ const Modal = ({ title, onClose, children, footer }) => (
   </div>
 );
 
+
+const ThumbUpload = ({ label, thumbs, onChange, maxFiles = 6 }) => {
+  const inputRef = useRef(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleFiles = async (files) => {
+    const remaining = maxFiles - thumbs.length;
+    if (remaining <= 0) return;
+    setLoading(true);
+    const compressed = await Promise.all(Array.from(files).slice(0, remaining).map(f => compressImage(f)));
+    onChange([...thumbs, ...compressed]);
+    setLoading(false);
+  };
+
+  const removeThumb = (idx) => onChange(thumbs.filter((_, i) => i !== idx));
+
+  return (
+    <div className="mb-4">
+      {label && <label className="block text-sm font-medium text-slate-400 mb-1.5">{label}</label>}
+      <div
+        className="border-2 border-dashed border-dark-600 hover:border-primary/60 rounded-lg p-5 text-center cursor-pointer transition-colors"
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
+      >
+        {loading ? (
+          <p className="text-sm text-slate-400">Comprimindo imagens...</p>
+        ) : (
+          <>
+            <Upload size={22} className="mx-auto text-slate-500 mb-1.5" />
+            <p className="text-sm text-slate-400">Clique ou arraste as thumbnails aqui</p>
+            <p className="text-xs text-slate-600 mt-0.5">JPG, PNG • máx {maxFiles} imagens</p>
+          </>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => handleFiles(e.target.files)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+      {thumbs.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 mt-3">
+          {thumbs.map((src, i) => (
+            <div key={i} className="relative group aspect-video">
+              <img src={src} alt={`Thumb ${i + 1}`} className="w-full h-full object-cover rounded border border-dark-700" />
+              <button
+                type="button"
+                onClick={() => removeThumb(i)}
+                className="absolute top-1 right-1 bg-black/70 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <X size={12} />
+              </button>
+              <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">
+                {i + 1}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // =======================
 // VIEWS - OWNER
@@ -671,31 +755,29 @@ const EditorDashboard = ({ videos }) => {
 const FilaEdicao = ({ videos, saveItem }) => {
   const pendentes = videos.filter(v => v.status !== 'Entregue' && v.status !== 'Aprovado');
   const [selected, setSelected] = useState(null);
-  const [form, setForm] = useState({ linkEditado: '', thumb1: '', thumb2: '', thumb3: '', obsEditor: '' });
+  const [form, setForm] = useState({ linkEditado: '', thumbs: [], obsEditor: '' });
 
   const handleOpen = (v) => {
     setSelected(v);
-    if(v.status === 'Enviado') {
-      saveItem('videos', {...v, status: 'Em Edição'});
+    if (v.status === 'Enviado') {
+      saveItem('videos', { ...v, status: 'Em Edição' });
     }
   };
 
   const handleDeliver = async (e) => {
     e.preventDefault();
-    const thumbsArray = [form.thumb1, form.thumb2, form.thumb3].filter(t => t.trim() !== '');
-    
     await saveItem('videos', {
       ...selected,
       status: 'Entregue',
       entrega: {
         linkEditado: form.linkEditado,
-        thumbs: thumbsArray,
+        thumbs: form.thumbs,
         obsEditor: form.obsEditor,
         dataEntrega: new Date().toISOString()
       }
     });
     setSelected(null);
-    setForm({ linkEditado: '', thumb1: '', thumb2: '', thumb3: '', obsEditor: '' });
+    setForm({ linkEditado: '', thumbs: [], obsEditor: '' });
   };
 
   return (
@@ -710,7 +792,7 @@ const FilaEdicao = ({ videos, saveItem }) => {
            </div>
         ) : (
           pendentes.map(v => (
-            <Card key={v.id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => handleOpen(v)}>
+            <Card key={v.id} className="hover:border-primary transition-colors">
               <div className="flex flex-col md:flex-row gap-4 justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
@@ -723,7 +805,7 @@ const FilaEdicao = ({ videos, saveItem }) => {
                   </div>
                 </div>
                 <div className="self-start md:self-center">
-                   <Button variant="outline" size="sm">Ver Briefing / Entregar</Button>
+                  <Button variant="outline" size="sm" onClick={() => handleOpen(v)}>Ver Briefing / Entregar</Button>
                 </div>
               </div>
             </Card>
@@ -772,14 +854,12 @@ const FilaEdicao = ({ videos, saveItem }) => {
               <form onSubmit={handleDeliver} className="space-y-4">
                 <Input label="Link do Vídeo Finalizado (Google Drive/Frame.io)" required value={form.linkEditado} onChange={e => setForm({...form, linkEditado: e.target.value})} placeholder="URL do vídeo final" />
                 
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">Links das Thumbnails (Imgur, Drive, etc)</label>
-                  <div className="space-y-2">
-                    <input className="w-full bg-dark-900 border border-dark-700 rounded p-2 text-sm text-slate-200 outline-none focus:border-primary" placeholder="Link Thumb A" value={form.thumb1} onChange={e => setForm({...form, thumb1: e.target.value})} required />
-                    <input className="w-full bg-dark-900 border border-dark-700 rounded p-2 text-sm text-slate-200 outline-none focus:border-primary" placeholder="Link Thumb B" value={form.thumb2} onChange={e => setForm({...form, thumb2: e.target.value})} />
-                    <input className="w-full bg-dark-900 border border-dark-700 rounded p-2 text-sm text-slate-200 outline-none focus:border-primary" placeholder="Link Thumb C" value={form.thumb3} onChange={e => setForm({...form, thumb3: e.target.value})} />
-                  </div>
-                </div>
+                <ThumbUpload
+                  label="Thumbnails (arraste ou clique para enviar)"
+                  thumbs={form.thumbs}
+                  onChange={(thumbs) => setForm({ ...form, thumbs })}
+                  maxFiles={6}
+                />
 
                 <Textarea label="Suas observações para o dono do canal" value={form.obsEditor} onChange={e => setForm({...form, obsEditor: e.target.value})} />
 
@@ -799,15 +879,19 @@ const FilaEdicao = ({ videos, saveItem }) => {
 
 const GestaoTestesAB = ({ testes, videos, saveItem }) => {
   const [isModalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ videoId: '', thumbAtual: '', novaThumb1: '', novaThumb2: '' });
+  const [form, setForm] = useState({ videoId: '', thumbs: [] });
   const videosAprovados = videos.filter(v => v.status === 'Aprovado');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     await saveItem('testes-ab', {
-      ...form, id: generateId(), status: 'Ativo', dataInicio: new Date().toISOString()
+      videoId: form.videoId,
+      thumbAtual: form.thumbs[0] || '',
+      novaThumb1: form.thumbs[1] || '',
+      novaThumb2: form.thumbs[2] || '',
+      id: generateId(), status: 'Ativo', dataInicio: new Date().toISOString()
     });
-    setForm({ videoId: '', thumbAtual: '', novaThumb1: '', novaThumb2: '' });
+    setForm({ videoId: '', thumbs: [] });
     setModalOpen(false);
   };
 
@@ -841,18 +925,16 @@ const GestaoTestesAB = ({ testes, videos, saveItem }) => {
             </div>
             
             <div className="grid grid-cols-3 gap-2 mt-4 text-center text-xs text-slate-400">
-              <div className="bg-dark-900 border border-dark-700 rounded p-2">
-                <span className="block mb-1 font-medium text-slate-300">Atual</span>
-                <a href={t.thumbAtual} target="_blank" rel="noreferrer" className="text-primary hover:underline break-all truncate block">Link</a>
-              </div>
-              <div className="bg-dark-900 border border-dark-700 rounded p-2">
-                <span className="block mb-1 font-medium text-slate-300">Opção 1</span>
-                <a href={t.novaThumb1} target="_blank" rel="noreferrer" className="text-primary hover:underline break-all truncate block">Link</a>
-              </div>
-              <div className="bg-dark-900 border border-dark-700 rounded p-2">
-                <span className="block mb-1 font-medium text-slate-300">Opção 2</span>
-                <a href={t.novaThumb2} target="_blank" rel="noreferrer" className="text-primary hover:underline break-all truncate block">Link</a>
-              </div>
+              {[{ label: 'Atual', src: t.thumbAtual }, { label: 'Opção 1', src: t.novaThumb1 }, { label: 'Opção 2', src: t.novaThumb2 }].map(({ label, src }) => (
+                <div key={label} className="bg-dark-900 border border-dark-700 rounded overflow-hidden">
+                  <span className="block py-1 font-medium text-slate-300 text-[11px]">{label}</span>
+                  {src ? (
+                    <img src={src} alt={label} className="w-full aspect-video object-cover" />
+                  ) : (
+                    <div className="aspect-video flex items-center justify-center text-slate-600 text-[10px]">—</div>
+                  )}
+                </div>
+              ))}
             </div>
 
             {t.status === 'Ativo' ? (
@@ -875,21 +957,27 @@ const GestaoTestesAB = ({ testes, videos, saveItem }) => {
       {isModalOpen && (
         <Modal title="Novo Teste A/B" onClose={() => setModalOpen(false)} footer={<>
           <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
-          <Button onClick={handleSubmit}>Iniciar Teste</Button>
+          <Button onClick={handleSubmit} disabled={!form.videoId || form.thumbs.length < 2}>Iniciar Teste</Button>
         </>}>
-          <form className="space-y-4">
-             <div className="mb-4">
-               <label className="block text-sm font-medium text-slate-400 mb-1.5">Selecione o Vídeo (Aprovados)</label>
-               <select className="w-full bg-dark-900 border border-dark-700 rounded-lg px-4 py-2.5 text-slate-200 outline-none focus:border-primary"
-                  value={form.videoId} onChange={e => setForm({...form, videoId: e.target.value})} required>
-                 <option value="">-- Selecione --</option>
-                 {videosAprovados.map(v => <option key={v.id} value={v.id}>{v.titulo}</option>)}
-               </select>
-             </div>
-             <Input label="Link da Thumbnail Atual (Controle)" required value={form.thumbAtual} onChange={e => setForm({...form, thumbAtual: e.target.value})} />
-             <Input label="Link Nova Thumbnail (Opção 1)" required value={form.novaThumb1} onChange={e => setForm({...form, novaThumb1: e.target.value})} />
-             <Input label="Link Nova Thumbnail (Opção 2 - Opcional)" value={form.novaThumb2} onChange={e => setForm({...form, novaThumb2: e.target.value})} />
-          </form>
+          <div className="space-y-4">
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-400 mb-1.5">Selecione o Vídeo (Aprovados)</label>
+              <select className="w-full bg-dark-900 border border-dark-700 rounded-lg px-4 py-2.5 text-slate-200 outline-none focus:border-primary"
+                value={form.videoId} onChange={e => setForm({ ...form, videoId: e.target.value })} required>
+                <option value="">-- Selecione --</option>
+                {videosAprovados.map(v => <option key={v.id} value={v.id}>{v.titulo}</option>)}
+              </select>
+            </div>
+            <ThumbUpload
+              label="Thumbnails (1ª = Atual/Controle · 2ª = Opção 1 · 3ª = Opção 2 opcional)"
+              thumbs={form.thumbs}
+              onChange={(thumbs) => setForm({ ...form, thumbs })}
+              maxFiles={3}
+            />
+            {form.thumbs.length < 2 && (
+              <p className="text-xs text-yellow-500/80">Envie pelo menos 2 imagens para iniciar o teste.</p>
+            )}
+          </div>
         </Modal>
       )}
     </div>
